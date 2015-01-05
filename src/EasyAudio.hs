@@ -39,35 +39,6 @@ audioFeeder mv _ buf sz = tryTakeMVar mv >>= traverse_ aux
                                      (fromIntegral n)
                        void $ tryPutMVar mv (st { audioPos = pos + n }, sig)
 
--- | Initializes EasyAudio. Returns a function for loading sound
--- clips, and an action for closing the audio device. The clip loading
--- function returns a blocking action for playing the loaded audio
--- clip.
-easyAudio :: IO (FilePath -> IO (IO ()), IO ())
-easyAudio =
-    do prevSpec <- newMVar Nothing
-       let loadAudioFile f =
-             do d <- takeMVar prevSpec
-                ac@(AudioClip spec _ _) <- loadClip f
-                (DeviceInfo dev spec' q, sig) <- case d of
-                  Nothing -> do r <- prepAudioDevice spec
-                                let sig = pauseAudioDevice (deviceInfoID r) 1
-                                putMVar prevSpec (Just (r, sig))
-                                return (r, sig)
-                  Just r -> return r
-                (buf', len') <- matchAudioSpecs spec' ac
-                return $ do putMVar q (FeederState buf' len' 0, sig)
-                            pauseAudioDevice dev 0
-                            waitForPause dev
-                            
-           cleanup = takeMVar prevSpec
-                     >>= traverse_ (closeAudioDevice . deviceInfoID . fst)
-       return (loadAudioFile, cleanup)
-  where waitForPause d = do s <- getAudioDeviceStatus d
-                            when (s == SDL.SDL_AUDIO_PLAYING) $ do
-                              SDL.delay 100
-                              waitForPause d
-
 -- | Information about an open audio device, including a mechanism to
 -- communicate with the callback function that loads data.
 data DeviceInfo = DeviceInfo { deviceInfoID     :: SDL.AudioDeviceID
@@ -99,6 +70,9 @@ checkError msg m = do r <- m
                       when (r < 0)
                            (SDL.getError >>= F.peekCString >>= error . aux)
   where aux = (("Error " ++ msg) ++)
+
+-- | Info about a loaded WAV file: spec, data, length (in bytes).
+data AudioClip = AudioClip SDL.AudioSpec (Ptr Word8) Word32
 
 -- | Convert an 'AudioClip' to a destination 'SDL.AudioSpec' if
 -- conversion is necessary. Returns a buffer of sound data with the
@@ -132,9 +106,6 @@ matchAudioSpecs dst@(SDL.AudioSpec freqdst fmtdst chandst _ _ _ _ _)
                           SDL.audioCVTLenCvt cvt'
                       return (fp', fromIntegral $ SDL.audioCVTLenCvt cvt')
 
--- | Info about a loaded WAV file: spec, data, length (in bytes).
-data AudioClip = AudioClip SDL.AudioSpec (Ptr Word8) Word32
-
 -- | Load a WAV file.
 loadClip :: FilePath -> IO AudioClip
 loadClip f =
@@ -146,3 +117,31 @@ loadClip f =
               when (wr == nullPtr) (error $ "Error Loading WAV: "++f)
               AudioClip <$> peek specPtr <*> peek soundPtr <*> peek soundLenPtr
 
+-- | Initializes EasyAudio. Returns a function for loading sound
+-- clips, and an action for closing the audio device. The clip loading
+-- function returns a blocking action for playing the loaded audio
+-- clip.
+easyAudio :: IO (FilePath -> IO (IO ()), IO ())
+easyAudio =
+    do prevSpec <- newMVar Nothing
+       let loadAudioFile f =
+             do d <- takeMVar prevSpec
+                ac@(AudioClip spec _ _) <- loadClip f
+                (DeviceInfo dev spec' q, sig) <- case d of
+                  Nothing -> do r <- prepAudioDevice spec
+                                let sig = pauseAudioDevice (deviceInfoID r) 1
+                                putMVar prevSpec (Just (r, sig))
+                                return (r, sig)
+                  Just r -> return r
+                (buf', len') <- matchAudioSpecs spec' ac
+                return $ do putMVar q (FeederState buf' len' 0, sig)
+                            pauseAudioDevice dev 0
+                            waitForPause dev
+                            
+           cleanup = takeMVar prevSpec
+                     >>= traverse_ (closeAudioDevice . deviceInfoID . fst)
+       return (loadAudioFile, cleanup)
+  where waitForPause d = do s <- getAudioDeviceStatus d
+                            when (s == SDL.SDL_AUDIO_PLAYING) $ do
+                              SDL.delay 100
+                              waitForPause d
