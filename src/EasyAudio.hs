@@ -43,7 +43,7 @@ audioFeeder mv _ buf sz = tryTakeMVar mv >>= traverse_ aux
 -- communicate with the callback function that loads data.
 data DeviceInfo = DeviceInfo { deviceInfoID     :: SDL.AudioDeviceID
                              , _deviceInfoSpec  :: SDL.AudioSpec
-                             , _deviceInfoQueue :: (MVar (FeederState, IO ())) }
+                             , _deviceInfoQueue :: MVar (FeederState, IO ()) }
 
 -- | Open an audio device with the given desired spec.
 prepAudioDevice :: SDL.AudioSpec -> IO DeviceInfo
@@ -109,13 +109,13 @@ matchAudioSpecs dst@(SDL.AudioSpec freqdst fmtdst chandst _ _ _ _ _)
 -- | Load a WAV file.
 loadClip :: FilePath -> IO AudioClip
 loadClip f =
-    do F.withCString f $ \file ->
-         F.alloca $ \specPtr ->
-         F.alloca $ \soundPtr ->
-         F.alloca $ \soundLenPtr ->
-           do wr <- loadWAV file specPtr soundPtr soundLenPtr
-              when (wr == nullPtr) (error $ "Error Loading WAV: "++f)
-              AudioClip <$> peek specPtr <*> peek soundPtr <*> peek soundLenPtr
+    F.withCString f $ \file ->
+      F.alloca $ \specPtr ->
+      F.alloca $ \soundPtr ->
+      F.alloca $ \soundLenPtr ->
+        do wr <- loadWAV file specPtr soundPtr soundLenPtr
+           when (wr == nullPtr) (error $ "Error Loading WAV: "++f)
+           AudioClip <$> peek specPtr <*> peek soundPtr <*> peek soundLenPtr
 
 -- | Initializes EasyAudio. Returns a function for loading sound
 -- clips, and an action for closing the audio device. The clip loading
