@@ -10,8 +10,8 @@ main = do r <- SDL.init SDL.SDL_INIT_AUDIO
           putStrLn "Initialized SDL"
           (loadClip, cleanup) <- easyAudio
           audioFilePath <- getDataFileName ("demo" </> "bling.wav")
-          vader <- loadClip audioFilePath
-          vader
+          bling <- loadClip audioFilePath
+          bling
           cleanup
           putStrLn "Quitting SDL"
           SDL.quit
